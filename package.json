@@ -1,0 +1,19 @@
+{
+    "name": "what-would-trump-say",
+    "version": "0.0.1",
+    "main": "index",
+    "engines": {
+        "node": ">= 5.10"
+    },
+    "dependencies": {
+        "hapi": "^15.2",
+        "inert": "^4.0",
+        "rxjs": "^5.0.0-rc.4",
+        "sprintf-js": "^1.0.3",
+        "vision": "^4.1.0"
+    },
+    "scripts": {
+        "start": "node index.js",
+        "postinstall": "bower install"
+    }
+}
