@@ -3,11 +3,13 @@
     "version": "0.0.1",
     "main": "index",
     "engines": {
-        "node": ">= 5.10"
+        "node": ">=5.10"
     },
     "dependencies": {
-        "hapi": "^15.2",
+        "hapi": "^15.2.0",
         "inert": "^4.0",
+        "joi": "^10.0",
+        "node-cmd": "^1.1.1",
         "rxjs": "^5.0.0-rc.4",
         "sprintf-js": "^1.0.3",
         "vision": "^4.1.0"

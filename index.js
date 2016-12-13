@@ -15,7 +15,8 @@ Promise.resolve(new Hapi.Server())
         // Plugins
         return new Promise((f, r) => {
             server.register([
-                require('inert')
+                require('inert'),
+                require('./plugin/audioClipper/plugin')
             ], (err) => {
                 if (err) {
                     console.error(err)
@@ -49,7 +50,7 @@ Promise.resolve(new Hapi.Server())
             }
         }, {
             method: 'GET',
-            path: '/clip/audio/{param*}',
+            path: '/audio/file/{param*}',
             handler: {
                 directory: {
                     path: 'audioFile/'
@@ -57,7 +58,7 @@ Promise.resolve(new Hapi.Server())
             }
         }, {
             method: 'GET',
-            path: '/clip/meta/{param*}',
+            path: '/audio/meta/{param*}',
             handler: {
                 directory: {
                     path: 'clipMeta/'

@@ -1,0 +1,160 @@
+<link rel="import" href="/bower_components/polymer/polymer.html">
+<link rel="import" href="/bower_components/iron-ajax/iron-ajax.html">
+<link rel="import" href="/bower_components/iron-flex-layout/iron-flex-layout-classes.html">
+<link rel="import" href="/bower_components/iron-list/iron-list.html">
+
+<dom-module id="audio-selector">
+    <template>
+      <style is="custom-style" include="iron-flex iron-flex-alignment"></style>
+      <style>
+      :host {
+        display: block;
+        height: 100vh;
+        flex-direction: column;
+      }
+      #audioPlayer {
+        width: 100vh;
+      }
+      #audioList {
+        flex-grow: 3;
+      }
+      #clipList {
+        height: 100vh;
+      }
+      .row {
+        height: 48px;
+        display: flex;
+        justify-content: center;
+        flex-direction: column;
+      }
+      .row.selected {
+        background-color: #eee;
+      }
+      .row:hover {
+        cursor: pointer;
+        background-color: #eee;
+      }
+      </style>
+
+      <audio id="audioPlayer" controls></audio>
+
+      <iron-ajax id='ajax' auto url="/clip/audio" handle-as="json" on-response="_onAudioAjaxResponse"></iron-ajax>
+      <div class='horizontal layout'>
+          <iron-list id='audioList' class='flex' items=[[audioFiles]] selected-item="{{selectedFile}}" selection-enabled>
+              <template>
+                <p class='row' class$="[[_computedClass(selected)]]">[[item.label]]</p>
+              </template>
+    </iron-list>
+    <iron-list id='clipList' class='flex' items=[[clipData]] selected-item="{{selectedClip}}" selection-enabled>
+        <template>
+                <p class='row' class$="[[_computedClass(selected)]]">[[_computeClipLabel(item)]]</p>
+              </template>
+    </iron-list>
+    </div>
+
+    </template>
+</dom-module>
+
+<script>
+    (function() {
+        const audioDataCache = {}
+
+        Polymer({
+            is: 'audio-selector',
+            properties: {
+                audioFiles: {
+                    type: Array
+                },
+                selectedFile: {
+                    type: Object,
+                    observer: '_onSelectedFileChange'
+                },
+                clipData: {
+                    type: Array
+                },
+                selectedClip: {
+                    type: Object,
+                    observer: '_onSelectedClipChange'
+                }
+            },
+
+            _computedClass: function(isSelected) {
+                var classes = 'row'
+                if (isSelected) {
+                    classes += ' selected'
+                }
+                return classes
+            },
+
+            _computeClipLabel: function(data) {
+                const match = /(\d+)$/.exec(data.id)
+                return match ? match[1] : data.id
+            },
+
+            _onAudioAjaxResponse: function(e, request) {
+                const url = request.xhr.responseURL,
+                    isListing = /\/clip\/audio$/.test(url)
+                if (isListing) {
+                    const labelRegExp = /^(.+)\.\w+$/
+                    this.audioFiles = request.response.map(fileName => {
+                        const labelMatch = labelRegExp.exec(fileName),
+                            label = labelMatch ? labelMatch[1] : fileName
+                        return {
+                            name: fileName,
+                            label: label
+                        }
+                    })
+
+                } else {
+                    // TODO Process and cache, load if matches last load
+                    console.debug('meta?', url, request.response)
+                    for (const key in request.response) {
+                        const audioData = request.response[key],
+                            localFileName = audioData.audioFile
+                        this._playAudio(this._getAudioFileUrl(localFileName))
+                    }
+                }
+            },
+
+            _getAudioFileUrl: function(fileName) {
+                return sprintf('/audio/file/%s', fileName)
+            },
+
+            _loadAudioMeta: function(audioData) {
+                // Polymer... must resize explicitly because first render will only be partial
+                this.async(function() {
+                    this.$.clipList.fire('iron-resize')
+                }, 10);
+            },
+
+            _queryAudio: function(fileName) {
+                this.lastFileQuery = fileName
+                const url = this._getAudioFileUrl(fileName)
+                    // TODO Cache processed data and skip query+process
+                this.$.ajax.url = url
+            },
+
+            _playAudio: function(url) {
+                const audioPlayer = this.$.audioPlayer
+                audioPlayer.src = url
+                    // audioPlayer.load()
+                audioPlayer.play()
+                console.debug(audioPlayer.src)
+            },
+
+            _onSelectedFileChange: function(newValue) {
+                if (newValue) {
+                    const metaFileName = sprintf('%s.json', newValue.label),
+                        metaUrl = sprintf('audio/meta/%s', metaFileName)
+                    this.lastMetaLoad = metaUrl
+                        // TODO Load temporary clipper and merge if exists and query not changed
+                    this.$.ajax.url = metaUrl
+                }
+            },
+
+            _onSelectedClipChange: function(newValue) {
+                if (newValue) {}
+            }
+        })
+    })()
+</script>
