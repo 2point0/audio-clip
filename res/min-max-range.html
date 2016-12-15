@@ -1,0 +1,148 @@
+<link rel="import" href="/bower_components/polymer/polymer.html">
+<link rel="import" href="/bower_components/iron-flex-layout/iron-flex-layout-classes.html">
+
+<link rel="import" href="./range-marker.html">
+
+<dom-module id="min-max-range">
+    <template>
+      <style is="custom-style" include="iron-flex iron-flex-alignment"></style>
+      <style>
+      :host {
+        display: block;
+        width: 100vh;
+      }
+      #rangeContainer {
+        display: block;
+        position: relative;
+        /*TODO Make height equal to height of components*/
+        height: 48px;
+      }
+      range-marker {
+        cursor: pointer;
+        position: absolute;
+      }
+      </style>
+
+      <div id='rangeContainer'>
+      <range-marker id='minMarker'></range-marker>
+      <range-marker id='maxMarker'></range-marker>
+    </div>
+
+    </template>
+</dom-module>
+
+<script>
+    (function() {
+        Polymer({
+            is: 'min-max-range',
+
+            ready: function() {
+                this._wireMarker(this.$.minMarker)
+                this._wireMarker(this.$.maxMarker)
+                this.addEventListener('mousemove', (e) => {
+                    if (this.isMouseDown) {
+                        const target = this.targetMarker,
+                            x = e.clientX,
+                            deltaX = this.downPosition.x - this.targetPosition.left,
+                            maxX = this.clientWidth - target.clientWidth
+
+                        let xf = x - deltaX
+                        if (xf < 0) {
+                            xf = 0
+                            this.isMouseDown = false
+                        } else if (xf > maxX) {
+                            xf = maxX
+                            this.isMouseDown = false
+                        }
+                        target.style.left = xf
+
+                        this._fireRange()
+                    }
+                })
+                this.addEventListener('mouseup', (e) => {
+                    this.isMouseDown = false
+                })
+            },
+            attached: function() {
+                // Set initial position so left style is set for mouse event calculations
+                this._setMarkerPosition(0, this.$.minMarker)
+                this._setMarkerPosition(1, this.$.maxMarker)
+            },
+
+            setPosition: function(startPercentage, endPercentage, startText, endText) {
+                const width = this.clientWidth
+                if (!width)
+                    return
+
+                const marker = this.$.minMarker,
+                    markerWidth = marker.clientWidth,
+                    maxLeft = width - markerWidth
+                startPercentage = Math.max(0, startPercentage)
+                endPercentage = Math.max(Math.min(1, endPercentage), startPercentage)
+                marker.style.left = Math.round(startPercentage * maxLeft)
+                this.$.maxMarker.style.left = Math.round(endPercentage * maxLeft)
+
+                this.setText(startText, endText)
+            },
+
+            setText: function(startText, endText) {
+                const minMarker = this.$.minMarker,
+                    maxMarker = this.$.maxMarker,
+                    startMarker = this.isInvertOrder ? maxMarker : minMarker,
+                    endMarker = this.isInvertOrder ? minMarker : maxMarker
+                startMarker.text = startText
+                endMarker.text = endText
+            },
+
+            _wireMarker: function(marker) {
+                const getMarker = (node) => {
+                    let counter = 0
+                    while (node.parentNode && counter++ < 10) {
+                        if (node.nodeName.toLowerCase() == 'range-marker') {
+                            return node
+                        }
+                        node = node.parentNode
+                    }
+                    throw new Error('Update node name comparison above')
+                }
+                marker.addEventListener('mousedown', (e) => {
+                    this.isMouseDown = true
+                    this.downPosition = {
+                        x: e.clientX,
+                        y: e.clientY
+                    }
+
+                    const target = getMarker(e.target)
+                    this.targetMarker = target
+                    this.targetPosition = {
+                        left: parseInt(target.style.left)
+                    }
+                }, false)
+            },
+            _setMarkerPosition: function(percentageOffset, marker) {
+                const width = this.clientWidth
+                if (!width)
+                    return
+
+                const markerWidth = marker.clientWidth,
+                    offset = (width - markerWidth) * percentageOffset
+                marker.style.left = offset + 'px'
+            },
+            _fireRange: function() {
+                const width = this.clientWidth,
+                    marker = this.$.minMarker,
+                    markerWidth = marker.clientWidth,
+                    minPosition = parseInt(marker.style.left),
+                    maxPosition = parseInt(this.$.maxMarker.style.left),
+                    maxLeft = width - markerWidth,
+                    minPercentage = minPosition / maxLeft,
+                    maxPercentage = maxPosition / maxLeft
+                this.isInvertOrder = maxPercentage < minPercentage
+                this.fire('range-change', {
+                    min: Math.min(minPercentage, maxPercentage),
+                    max: Math.max(minPercentage, maxPercentage)
+                })
+            }
+        })
+    })()
+</script>

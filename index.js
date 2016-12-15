@@ -1,6 +1,7 @@
 'use strict';
 
-const Hapi = require('hapi')
+const Hapi = require('hapi'),
+    sprintf = require('sprintf-js').sprintf
 
 // Server
 Promise.resolve(new Hapi.Server())
@@ -41,11 +42,35 @@ Promise.resolve(new Hapi.Server())
             method: 'GET',
             path: '/clip/audio',
             handler: function(request, reply) {
-                Fs.readdir('audioFile', function(err, files) {
-                    if (err)
-                        reply(err).code(500)
-                    else
-                        reply(files)
+                const audioDir = 'audioFile'
+                Fs.readdir(audioDir, function(readErr, files) {
+                    if (readErr) {
+                        console.error(readErr)
+                        reply().code(500)
+                    } else {
+                        Promise.all(files.map(fileName => {
+                                const filePath = sprintf('%s/%s', audioDir, fileName)
+                                return new Promise((f, r) => {
+                                    Fs.stat(filePath, (err, stats) => {
+                                        if (err)
+                                            r(err)
+                                        else {
+                                            const isIgnore = stats.isDirectory() || /^\./.test(fileName)
+                                            f(isIgnore ? '' : fileName)
+                                        }
+                                    })
+                                })
+                            }))
+                            .then(results => {
+                                reply(results.filter(result => {
+                                    return result
+                                }))
+                            })
+                            .catch(e => {
+                                console.error(e)
+                                reply().code(500)
+                            })
+                    }
                 })
             }
         }, {

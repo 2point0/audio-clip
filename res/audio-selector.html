@@ -3,6 +3,8 @@
 <link rel="import" href="/bower_components/iron-flex-layout/iron-flex-layout-classes.html">
 <link rel="import" href="/bower_components/iron-list/iron-list.html">
 
+<link rel="import" href="./min-max-range.html">
+
 <dom-module id="audio-selector">
     <template>
       <style is="custom-style" include="iron-flex iron-flex-alignment"></style>
@@ -36,7 +38,9 @@
       }
       </style>
 
-      <audio id="audioPlayer" controls></audio>
+      <audio id="audioPlayer"></audio>
+
+      <min-max-range id='minMaxRange' on-range-change='_onRangeChange'></min-max-range>
 
       <iron-ajax id='ajax' auto url="/clip/audio" handle-as="json" on-response="_onAudioAjaxResponse"></iron-ajax>
       <div class='horizontal layout'>
@@ -61,6 +65,7 @@
 
         Polymer({
             is: 'audio-selector',
+
             properties: {
                 audioFiles: {
                     type: Array
@@ -76,6 +81,10 @@
                     type: Object,
                     observer: '_onSelectedClipChange'
                 }
+            },
+
+            attached: function() {
+                this.$.minMaxRange.setPosition(0, 1, '0:00', '1:11')
             },
 
             _computedClass: function(isSelected) {
@@ -154,6 +163,16 @@
 
             _onSelectedClipChange: function(newValue) {
                 if (newValue) {}
+            },
+
+            _onRangeChange: function(e, detail) {
+                const seconds = 71,
+                    minSeconds = Math.round(seconds * detail.min),
+                    maxSeconds = Math.round(seconds * detail.max),
+                    getSecondsText = (s) => {
+                        return sprintf('%d:%d', Math.floor(s / 60), s % 60)
+                    }
+                this.$.minMaxRange.setText(getSecondsText(minSeconds), getSecondsText(maxSeconds))
             }
         })
     })()
