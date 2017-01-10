@@ -1,7 +1,7 @@
 <link rel="import" href="/bower_components/polymer/polymer.html">
 <link rel="import" href="/bower_components/iron-flex-layout/iron-flex-layout-classes.html">
-
-<link rel="import" href="./range-marker.html">
+<link rel="import" href="/bower_components/iron-icon/iron-icon.html">
+<link rel="import" href="/bower_components/iron-icons/maps-icons.html">
 
 <dom-module id="min-max-range">
     <template>
@@ -9,7 +9,6 @@
       <style>
       :host {
         display: block;
-        width: 100vh;
       }
       #rangeContainer {
         display: block;
@@ -17,16 +16,22 @@
         /*TODO Make height equal to height of components*/
         height: 48px;
       }
-      range-marker {
+      .marker {
         cursor: pointer;
         position: absolute;
+      }
+      #textPane > p {
+        margin: 0;
       }
       </style>
 
       <div id='rangeContainer'>
-      <range-marker id='minMarker'></range-marker>
-      <range-marker id='maxMarker'></range-marker>
+        <iron-icon id='minMarker' class='marker' icon='maps:navigation'></iron-icon>
+        <iron-icon id='maxMarker' class='marker' icon='maps:navigation'></iron-icon>
     </div>
+    <div id='textPane' class='horizontal layout'>
+    <p>{{minText}}</p><p class='flex'></p><p>{{maxText}}</p>
+  </div>
 
     </template>
 </dom-module>
@@ -35,6 +40,17 @@
     (function() {
         Polymer({
             is: 'min-max-range',
+
+            properties: {
+                minText: {
+                    type: String,
+                    value: '0:00'
+                },
+                maxText: {
+                    type: String,
+                    value: '1:11'
+                }
+            },
 
             ready: function() {
                 this._wireMarker(this.$.minMarker)
@@ -86,19 +102,36 @@
             },
 
             setText: function(startText, endText) {
-                const minMarker = this.$.minMarker,
-                    maxMarker = this.$.maxMarker,
-                    startMarker = this.isInvertOrder ? maxMarker : minMarker,
-                    endMarker = this.isInvertOrder ? minMarker : maxMarker
-                startMarker.text = startText
-                endMarker.text = endText
+                this.minText = startText
+                this.maxText = endText
+            },
+
+            getRange: function() {
+                const width = this.clientWidth
+                if (!width)
+                    return {
+                        min: 0,
+                        max: 0
+                    }
+
+                const marker = this.$.minMarker,
+                    markerWidth = marker.clientWidth,
+                    maxLeft = width - markerWidth,
+                    minPercentage = parseInt(marker.style.left) / maxLeft,
+                    maxPercentage = parseInt(this.$.maxMarker.style.left) / maxLeft,
+                    min = minPercentage < maxPercentage ? minPercentage : maxPercentage,
+                    max = min == minPercentage ? maxPercentage : minPercentage
+                return {
+                    min: min,
+                    max: max
+                }
             },
 
             _wireMarker: function(marker) {
                 const getMarker = (node) => {
                     let counter = 0
                     while (node.parentNode && counter++ < 10) {
-                        if (node.nodeName.toLowerCase() == 'range-marker') {
+                        if (node.nodeName.toLowerCase() == 'iron-icon') {
                             return node
                         }
                         node = node.parentNode

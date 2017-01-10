@@ -1,9 +1,14 @@
 <link rel="import" href="/bower_components/polymer/polymer.html">
-<link rel="import" href="/bower_components/iron-ajax/iron-ajax.html">
 <link rel="import" href="/bower_components/iron-flex-layout/iron-flex-layout-classes.html">
-<link rel="import" href="/bower_components/iron-list/iron-list.html">
+<link rel="import" href="/bower_components/iron-icon/iron-icon.html">
+<link rel="import" href="/bower_components/iron-icons/iron-icons.html">
 
+<link rel="import" href="/bower_components/paper-button/paper-button.html">
+
+<link rel="import" href="./audio-file-list.html">
+<link rel="import" href="./audio-meta-manager.html">
 <link rel="import" href="./min-max-range.html">
+<script src="/common/TimeText.js"></script>
 
 <dom-module id="audio-selector">
     <template>
@@ -14,46 +19,28 @@
         height: 100vh;
         flex-direction: column;
       }
-      #audioPlayer {
-        width: 100vh;
-      }
-      #audioList {
+      #metaManager {
+        /*TODO This is not working*/
         flex-grow: 3;
       }
-      #clipList {
-        height: 100vh;
-      }
-      .row {
-        height: 48px;
-        display: flex;
-        justify-content: center;
-        flex-direction: column;
-      }
-      .row.selected {
-        background-color: #eee;
-      }
-      .row:hover {
-        cursor: pointer;
-        background-color: #eee;
+      iron-icon.disabled {
+         /*TODO Use styles*/
+        --iron-icon-fill-color: #ccc;
       }
       </style>
 
       <audio id="audioPlayer"></audio>
 
-      <min-max-range id='minMaxRange' on-range-change='_onRangeChange'></min-max-range>
-
-      <iron-ajax id='ajax' auto url="/clip/audio" handle-as="json" on-response="_onAudioAjaxResponse"></iron-ajax>
+      <!-- TODO Align proper -->
       <div class='horizontal layout'>
-          <iron-list id='audioList' class='flex' items=[[audioFiles]] selected-item="{{selectedFile}}" selection-enabled>
-              <template>
-                <p class='row' class$="[[_computedClass(selected)]]">[[item.label]]</p>
-              </template>
-    </iron-list>
-    <iron-list id='clipList' class='flex' items=[[clipData]] selected-item="{{selectedClip}}" selection-enabled>
-        <template>
-                <p class='row' class$="[[_computedClass(selected)]]">[[_computeClipLabel(item)]]</p>
-              </template>
-    </iron-list>
+        <paper-button on-tap='_onSaveMeta'><iron-icon class='file-action disabled' icon='save'></iron-icon></paper-button>
+        <paper-button on-tap='_onAddClipping'><iron-icon class='file-action disabled' icon='add'></iron-icon></paper-button>
+        <min-max-range id='minMaxRange' class='flex' on-range-change='_onRangeChange'></min-max-range>
+      </div>
+
+      <div class='horizontal layout'>
+        <audio-file-list id='audioFileList' on-file-loading='_onFileLoading' on-file-loaded='_onFileLoaded'></audio-file-list>
+        <audio-meta-manager id='metaManager' on-clip-select='_onClipSelect' on-play-clip='_onPlayClip' on-stop-clip='_stopClip'></audio-meta-manager>
     </div>
 
     </template>
@@ -61,118 +48,237 @@
 
 <script>
     (function() {
-        const audioDataCache = {}
+        const timeText = new TimeText()
 
         Polymer({
             is: 'audio-selector',
 
-            properties: {
-                audioFiles: {
-                    type: Array
-                },
-                selectedFile: {
-                    type: Object,
-                    observer: '_onSelectedFileChange'
-                },
-                clipData: {
-                    type: Array
-                },
-                selectedClip: {
-                    type: Object,
-                    observer: '_onSelectedClipChange'
-                }
-            },
-
             attached: function() {
-                this.$.minMaxRange.setPosition(0, 1, '0:00', '1:11')
-            },
+                this._setRangeText('0')
 
-            _computedClass: function(isSelected) {
-                var classes = 'row'
-                if (isSelected) {
-                    classes += ' selected'
-                }
-                return classes
-            },
+                const player = this.$.audioPlayer
+                player.addEventListener("timeupdate", () => {
+                    this._onPlayUpdate(player)
+                })
 
-            _computeClipLabel: function(data) {
-                const match = /(\d+)$/.exec(data.id)
-                return match ? match[1] : data.id
-            },
-
-            _onAudioAjaxResponse: function(e, request) {
-                const url = request.xhr.responseURL,
-                    isListing = /\/clip\/audio$/.test(url)
-                if (isListing) {
-                    const labelRegExp = /^(.+)\.\w+$/
-                    this.audioFiles = request.response.map(fileName => {
-                        const labelMatch = labelRegExp.exec(fileName),
-                            label = labelMatch ? labelMatch[1] : fileName
-                        return {
-                            name: fileName,
-                            label: label
+                player.addEventListener("loadedmetadata", () => {
+                    const currentFile = this.$.audioFileList.getSelectedFile()
+                    if (player.src.endsWith(currentFile.fileName)) {
+                        if (currentFile.durationSeconds) {
+                            this.$.metaManager.load(currentFile.key)
+                        } else {
+                            currentFile.durationSeconds = player.duration
+                            this._loadForClipping(currentFile)
                         }
-                    })
-
-                } else {
-                    // TODO Process and cache, load if matches last load
-                    console.debug('meta?', url, request.response)
-                    for (const key in request.response) {
-                        const audioData = request.response[key],
-                            localFileName = audioData.audioFile
-                        this._playAudio(this._getAudioFileUrl(localFileName))
                     }
-                }
+                })
             },
 
-            _getAudioFileUrl: function(fileName) {
-                return sprintf('/audio/file/%s', fileName)
+            _getSelectedFile: function() {
+                return this.$.audioFileList.getSelectedFile()
             },
 
-            _loadAudioMeta: function(audioData) {
-                // Polymer... must resize explicitly because first render will only be partial
-                this.async(function() {
-                    this.$.clipList.fire('iron-resize')
-                }, 10);
+            _updateFileActionUi() {
+                const disable = !this.$.audioFileList.getSelectedFile()
+                this.querySelectorAll('.file-action').forEach(el => {
+                    if (disable) {
+                        el.classList.add('disabled')
+                    } else {
+                        el.classList.remove('disabled')
+                    }
+                })
+                this.updateStyles()
             },
 
-            _queryAudio: function(fileName) {
-                this.lastFileQuery = fileName
-                const url = this._getAudioFileUrl(fileName)
-                    // TODO Cache processed data and skip query+process
-                this.$.ajax.url = url
+            _onFileLoading: function(e, detail) {
+                this._stopAudio()
+
+                this._updateFileActionUi()
+
+                this.$.metaManager.clear()
             },
 
-            _playAudio: function(url) {
+            _onFileLoaded: function(e, detail) {
+                this.$.metaManager.clear()
+
+                this._loadForClipping(detail)
+
+                this._updateFileActionUi()
+            },
+
+            _setRangeText: function(maxText) {
+                this.$.minMaxRange.setPosition(0, 1, '0', maxText)
+            },
+
+            _loadForClipping: function(fileData) {
                 const audioPlayer = this.$.audioPlayer
-                audioPlayer.src = url
-                    // audioPlayer.load()
-                audioPlayer.play()
-                console.debug(audioPlayer.src)
-            },
+                let audioSrc = ''
 
-            _onSelectedFileChange: function(newValue) {
-                if (newValue) {
-                    const metaFileName = sprintf('%s.json', newValue.label),
-                        metaUrl = sprintf('audio/meta/%s', metaFileName)
-                    this.lastMetaLoad = metaUrl
-                        // TODO Load temporary clipper and merge if exists and query not changed
-                    this.$.ajax.url = metaUrl
+                // Continue to clipping only if file duration is determined
+                if (fileData.durationSeconds) {
+                    if (!audioPlayer.src.endsWith(fileData.fileName)) {
+                        this.$.metaManager.load(fileData.key)
+                    } else {
+                        const durationText = timeText.toTimeCode(fileData.durationSeconds)
+                        this._setRangeText(durationText)
+                        audioSrc = fileData.filePath
+                    }
+                } else {
+                    audioSrc = fileData.filePath
+                }
+
+                if (audioSrc) {
+                    audioPlayer.src = audioSrc
+                    audioPlayer.load()
                 }
             },
 
-            _onSelectedClipChange: function(newValue) {
-                if (newValue) {}
+            _getActiveAudioSeconds: function() {
+                const file = this.$.audioFileList.getSelectedFile()
+                return file ? file.durationSeconds : 0
+            },
+
+            _getMinMaxLengthTimeCode: function(minPercentage, maxPercentage) {
+                const seconds = this._getActiveAudioSeconds(),
+                    minSeconds = seconds * minPercentage,
+                    maxSeconds = seconds * maxPercentage,
+                    minTimeCode = timeText.toTimeCode(minSeconds),
+                    maxTimeCode = timeText.toTimeCode(maxSeconds),
+                    lengthSeconds = maxSeconds - minSeconds,
+                    lengthTimeCode = timeText.toTimeCode(lengthSeconds)
+                return {
+                    min: minTimeCode,
+                    max: maxTimeCode,
+                    length: lengthTimeCode
+                }
             },
 
             _onRangeChange: function(e, detail) {
-                const seconds = 71,
-                    minSeconds = Math.round(seconds * detail.min),
-                    maxSeconds = Math.round(seconds * detail.max),
-                    getSecondsText = (s) => {
-                        return sprintf('%d:%d', Math.floor(s / 60), s % 60)
+                const isPlaying = !this.$.audioPlayer.paused
+                this._stopAudio()
+
+                const timeCodes = this._getMinMaxLengthTimeCode(detail.min, detail.max)
+                this.$.minMaxRange.setText(timeCodes.min, timeCodes.max)
+                this.$.metaManager.updateRange(timeCodes.min, timeCodes.length)
+
+                if (isPlaying) {
+                    this._playClip(this.$.metaManager.selectedClip)
+                }
+            },
+
+            _onSaveMeta: function(e, detail) {
+                if (!this._getSelectedFile()) {
+                    return
+                }
+
+                this.$.metaManager.save()
+            },
+
+            _onAddClipping: function(e, detail) {
+                this._stopAudio()
+
+                const selectedFile = this._getSelectedFile()
+                if (!selectedFile) {
+                    return
+                }
+
+                const seconds = selectedFile.durationSeconds,
+                    range = this.$.minMaxRange.getRange(),
+                    min = range.max < 1 ? range.max : (range.min > 0 ? range.min : 0),
+                    timeCodes = this._getMinMaxLengthTimeCode(min, 1)
+
+                this.$.metaManager.addClip(timeCodes.min, timeCodes.length)
+            },
+
+            _convertToSeconds: function(startTimeCode, lengthTimeCode) {
+                const selectedFile = this._getSelectedFile(),
+                    totalSeconds = selectedFile.durationSeconds
+                if (!selectedFile) {
+                    return {
+                        startPercentage: 0,
+                        endPercentage: 1,
+                        startTimeCode: '0',
+                        end: totalSeconds
                     }
-                this.$.minMaxRange.setText(getSecondsText(minSeconds), getSecondsText(maxSeconds))
+                }
+
+                const startSeconds = timeText.parse(startTimeCode).seconds,
+                    lengthSeconds = timeText.parse(lengthTimeCode).seconds,
+                    endSeconds = startSeconds + lengthSeconds,
+                    startPercentage = Math.max(0, startSeconds / totalSeconds),
+                    endPercentage = Math.min(1, endSeconds / totalSeconds)
+                return {
+                    startPercentage: startPercentage,
+                    endPercentage: endPercentage,
+                    startTimeCode: startTimeCode,
+                    start: startSeconds,
+                    length: lengthSeconds,
+                    end: startSeconds + lengthSeconds
+                }
+            },
+
+            _onClipSelect: function(e, detail) {
+                this._stopAudio()
+
+                if (detail.start) {
+                    const startTimeCode = detail.start,
+                        seconds = this._convertToSeconds(startTimeCode, detail.length),
+                        endTimeCode = timeText.toTimeCode(seconds.end)
+                    this.$.minMaxRange.setPosition(
+                        seconds.startPercentage,
+                        seconds.endPercentage,
+                        startTimeCode,
+                        endTimeCode
+                    )
+                } else {
+                    // TODO Clear selection
+                    console.warn('clear clip selection')
+                }
+            },
+
+            _stopAudio: function() {
+                this.$.audioPlayer.pause()
+                this.playingMeta = null
+            },
+
+            _onPlayClip: function(e, detail) {
+                this._playClip(detail)
+            },
+
+            _playClip: function(seconds) {
+                const startTimeCode = seconds.start,
+                    converted = this._convertToSeconds(startTimeCode, seconds.length),
+                    audioPlayer = this.$.audioPlayer
+                this.playingMeta = converted
+                audioPlayer.currentTime = converted.start
+                audioPlayer.play()
+                this._timeoutPlay(audioPlayer)
+            },
+
+            _stopClip: function(e, detail) {
+                this.$.audioPlayer.pause()
+            },
+
+            _timeoutPlay: function(player) {
+                this.playingMeta.timeoutKey = setTimeout(() => {
+                    this._loopAudio(player)
+                }, this.playingMeta.length)
+            },
+
+            _onPlayUpdate: function(player) {
+                this._loopAudio(player)
+            },
+
+            _loopAudio: function(player) {
+                if (!player.paused) {
+                    const meta = this.playingMeta
+                    if (meta) {
+                        if (player.currentTime > meta.end) {
+                            player.currentTime = meta.start
+                            this._timeoutPlay(player)
+                        }
+                    }
+                }
             }
         })
     })()

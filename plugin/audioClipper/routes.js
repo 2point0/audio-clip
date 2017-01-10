@@ -2,14 +2,29 @@
 
 const Joi = require('joi'),
     sprintf = require('sprintf-js').sprintf,
-    nodeCmd = require('node-cmd'),
-    Fs = require('fs')
+    Fs = require('fs'),
+    exec = require('child_process').exec,
+    ClipName = require('../../common/ClipName')
 
-const timeCharReplace = (s) => {
-    return s.replace(/[:.]/, '_')
-}
+const audioFileDir = 'audioFile',
+    readMetaPromise = key => {
+        return new Promise((f, r) => {
+            const metaFilePath = sprintf('./clipMeta/%s.json', key)
+            Fs.readFile(metaFilePath, 'utf-8', (err, data) => {
+                if (err)
+                    r(err)
+                else {
+                    try {
+                        f(JSON.parse(data))
+                    } catch (e) {
+                        r(e)
+                    }
+                }
+            })
+        })
+    }
 
-module.exports = function routes(options) {
+module.exports = options => {
     return [{
         method: 'PUT',
         path: '/audio-clip',
@@ -19,73 +34,88 @@ module.exports = function routes(options) {
 
             Promise.resolve(requestMeta)
                 .then(meta => {
-                    if (meta)
-                        return meta
-                    else {
-                        return new Promise((f, r) => {
-                            const metaFilePath = sprintf('./clipMeta/%s.json', key)
-                            Fs.readFile(metaFilePath, 'utf-8', (err, data) => {
-                                if (err)
-                                    r(err)
-                                else {
-                                    try {
-                                        f(JSON.parse(data))
-                                    } catch (e) {
-                                        r(e)
-                                    }
-                                }
-                            })
-                        })
-                    }
+                    return meta ? meta : readMetaPromise(key)
                 })
                 .then(meta => {
-                    for (const key in meta) {
-                        const value = meta[key]
-                        if (value.clipping && value.audioFile) {
-                            return new Promise((f, r) => {
-                                const audioFilePath = sprintf('./audioFile/%s', value.audioFile)
-                                Fs.stat(audioFilePath, (err, stats) => {
-                                    if (err)
-                                        r(err)
-                                    else if (stats.isFile())
-                                        f(value)
-                                    else
-                                        r('Invalid audio file')
-                                })
+                    if (meta.clipping && meta.audioFile) {
+                        return new Promise((f, r) => {
+                            const audioFilePath = sprintf('./%s/%s', audioFileDir, meta.audioFile)
+                            Fs.stat(audioFilePath, (err, stats) => {
+                                if (err)
+                                    r(err)
+                                else if (stats.isFile())
+                                    f(meta)
+                                else
+                                    r('Invalid audio file')
                             })
-                        }
+                        })
                     }
 
                     throw new Error('Clipping meta or audio file not specified')
                 })
                 .then(meta => {
                     const sourceFileName = meta.audioFile,
-                        fileNameSplitRegExp = /^(.+)\.([^.]+)$/,
-                        fileNameMatch = fileNameSplitRegExp.exec(sourceFileName)
-                    if (!fileNameMatch)
-                        throw new Error(sprintf('Invalid file name %s', sourceFileName))
-
-                    const fileNameStart = fileNameMatch[1],
-                        fileExtension = fileNameMatch[2]
+                        clipName = new ClipName(sourceFileName)
                     return Promise.all(meta.clipping.map(c => {
                         return new Promise((f, r) => {
-                            const startTime = c.start,
-                                clipTimeSpan = c.length,
-                                safeTimeName = sprintf('%s-%s', timeCharReplace(startTime), timeCharReplace(clipTimeSpan)),
-                                outputFile = sprintf('%s_%s.%s', fileNameStart, safeTimeName, fileExtension),
-                                clipCmdTemplate = 'ffmpeg -y -ss %s -i audioFile/%s -t %s ./audioClip/%s',
-                                clipCmd = sprintf(clipCmdTemplate, startTime, sourceFileName, clipTimeSpan, outputFile)
-                            nodeCmd.get(
+                            const outputFile = clipName.getClipName(c),
+                                clipCmdTemplate = 'ffmpeg -y -ss %s -i %s/%s -t %s ./audioClip/%s',
+                                clipCmd = sprintf(clipCmdTemplate, c.start, audioFileDir, sourceFileName, c.length, outputFile)
+                            exec(
                                 clipCmd,
-                                (output) => {
-                                    f(outputFile)
-                                }
+                                (error, stdout, stderr) => f(outputFile)
                             )
                         })
                     }))
                 })
                 .then(results => {
                     reply(results.length)
+                })
+                .catch(err => {
+                    console.error(err)
+                    reply().code(500)
+                })
+        },
+        config: {
+            validate: {
+                query: {
+                    key: Joi.string().required()
+                }
+            }
+        }
+    }, {
+        method: 'GET',
+        path: '/audio-info',
+        handler: function(request, reply) {
+            const key = request.query.key
+            readMetaPromise(key)
+                .then(meta => {
+                    if (meta.audioFile) {
+                        return new Promise((f, r) => {
+                            const fileInfoTemplate = 'ffprobe ./%s/%s',
+                                infoCmd = sprintf(fileInfoTemplate, audioFileDir, meta.audioFile)
+                            exec(
+                                infoCmd,
+                                (error, stdout, stderr) => {
+                                    f({
+                                        key: key,
+                                        info: stderr
+                                    })
+                                }
+                            )
+                        })
+                    }
+
+                    throw new Error('Clipping meta or audio file not specified')
+                })
+                .then(results => {
+                    const durationRegExp = /\bDuration: ([^,]+)/,
+                        match = durationRegExp.exec(results.info),
+                        duration = match ? match[1] : '0'
+                    reply({
+                        key: key,
+                        duration: duration
+                    })
                 })
                 .catch(err => {
                     console.error(err)

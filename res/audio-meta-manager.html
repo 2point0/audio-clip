@@ -1,0 +1,248 @@
+<link rel="import" href="/bower_components/polymer/polymer.html">
+<link rel="import" href="/bower_components/iron-ajax/iron-ajax.html">
+<link rel="import" href="/bower_components/iron-flex-layout/iron-flex-layout-classes.html">
+<link rel="import" href="/bower_components/iron-icon/iron-icon.html">
+<link rel="import" href="/bower_components/iron-icons/iron-icons.html">
+<link rel="import" href="/bower_components/iron-icons/av-icons.html">
+<link rel="import" href="/bower_components/iron-icons/image-icons.html">
+<link rel="import" href="/bower_components/iron-list/iron-list.html">
+
+<link rel="import" href="/bower_components/paper-dialog/paper-dialog.html">
+<link rel="import" href="/bower_components/paper-input/paper-input.html">
+<link rel="import" href="/bower_components/paper-toast/paper-toast.html">
+
+<dom-module id="audio-meta-manager">
+    <template>
+      <style is="custom-style" include="iron-flex iron-flex-alignment"></style>
+      <style>
+      #clipList{
+        height: 100vh;
+      }
+      .row>p:hover{
+        background: #eee;
+      }
+      </style>
+
+      <iron-ajax id='ajax' auto url="" handle-as="json" on-response="_onMetaAjaxResponse"></iron-ajax>
+      <iron-ajax id='saveAjax'></iron-ajax>
+
+      <paper-toast id="toast" text=""></paper-toast>
+
+      <paper-dialog id="dialog" on-iron-overlay-closed='_onDialogClose' with-backdrop>
+        <paper-input id='dialogInput' tabindex='1'></paper-input>
+        <div class="buttons">
+          <paper-button dialog-dismiss>Close</paper-button>
+          <paper-button dialog-confirm autofocus>OK</paper-button>
+        </div>
+      </paper-dialog>
+
+
+      <iron-list id='clipList' class='flex' items=[[clipData]] selected-item="{{selectedClip}}" selection-enabled>
+        <template>
+          <div class='horizontal layout row'>
+            <paper-button on-tap='_onSelectClip'><iron-icon icon='[[_computeClipSelect(selected)]]'></iron-icon></paper-button>
+            <paper-button on-tap='_onPlayStopClip'><iron-icon icon='[[_computeClipPlay(item.isPlaying)]]'></iron-icon></paper-button>
+            <p class="flex" on-tap='_onEditClip'>[[_computeClipLabel(item.transcript)]]</p>
+            <paper-button on-tap='_onDeleteClip'><iron-icon icon='delete'></iron-icon></paper-button>
+          </div>
+        </template>
+    </iron-list>
+
+    </template>
+</dom-module>
+
+<script>
+    (function() {
+        Polymer({
+            is: 'audio-meta-manager',
+
+            properties: {
+                clipData: {
+                    type: Array,
+                    value: function() {
+                        return []
+                    }
+                },
+                selectedClip: {
+                    type: Object,
+                    observer: '_onSelectedClipChange'
+                },
+                lastPlayingIndex: {
+                    type: Number,
+                    value: -1
+                }
+            },
+
+            _computeClipSelect: function(isSelected) {
+                return isSelected ? 'av:fiber-manual-record' : 'image:panorama-fish-eye'
+            },
+
+            _computeClipPlay: function(isPlaying) {
+                return isPlaying ? 'av:stop' : 'av:play-arrow'
+            },
+
+            _computeClipLabel: function(transcript) {
+                const L = 30
+                return transcript.length < L ? transcript : sprintf('%s ...', transcript.substr(0, L))
+            },
+
+            clear: function() {
+                const clipData = this.clipData
+                this.clipData = []
+            },
+
+            save: function() {
+                const meta = this.lastLoadMeta,
+                    key = this.lastLoadKey,
+                    toastMessage = message => {
+                        this.$.toast.show({
+                            text: message,
+                            duration: 1000
+                        })
+                    },
+                    toastErrorMessage = message => {
+                        toastMessage(message)
+                        console.warn(message, meta, this.clipData)
+                    }
+                if (meta._saveKey = key) {
+                    delete meta._saveKey
+                    meta.clipping = this.clipData
+
+                    const saveMessage = sprintf('Saved %s', key)
+                    const ajax = this.$.saveAjax
+                    ajax.method = 'PUT'
+                    ajax.body = {
+                        key: key,
+                        content: meta
+                    }
+                    ajax.contentType = 'application/json'
+                    ajax.url = '/clip/meta'
+                    const request = ajax.generateRequest()
+                        .completes
+                        .then(() => {
+                            toastMessage(saveMessage)
+                        })
+                        .catch(e => {
+                            const saveFailMessage = sprintf('Save failed %s', key)
+                            toastErrorMessage(saveFailMessage)
+                        })
+                } else {
+                    const didNotSaveMessage = sprintf('Did not save %s', key)
+                    toastErrorMessage(didNotSaveMessage)
+                }
+            },
+
+            load: function(key) {
+                this.lastLoadKey = key
+                this.$.ajax.url = sprintf('/audio/meta/%s.json', key)
+            },
+
+            updateRange: function(minTimeCode, lengthTimeCode) {
+                const selectedClip = this._getSelectedClip()
+                selectedClip.start = minTimeCode
+                selectedClip.length = lengthTimeCode
+            },
+
+            addClip: function(minTimeCode, lengthTimeCode) {
+                this.unshift('clipData', {
+                    transcript: '',
+                    start: minTimeCode,
+                    length: lengthTimeCode
+                })
+
+                this.async(() => {
+                    this.lastPlayingIndex += 1
+                    this._selectClip(0)
+                }, 10)
+            },
+
+            _onMetaAjaxResponse: function(e, request) {
+                if (~request.url.indexOf(this.lastLoadKey)) {
+                    const meta = request.response
+                    meta._saveKey = this.lastLoadKey
+                    this.lastLoadMeta = meta
+                    meta.clipping.forEach(clip => {
+                        this.push('clipData', clip)
+                    })
+                }
+            },
+
+            _getSelectedClip: function() {
+                const clip = this.$.clipList.selectedItem
+                return clip ? clip : {}
+            },
+
+            _onSelectedClipChange: function(newValue, oldValue) {
+                this.fire('clip-select', newValue ? newValue : {})
+            },
+
+            _selectClip: function(index) {
+                if (~this.lastPlayingIndex) {
+                    this._setPlayingState(this.lastPlayingIndex, false)
+                    this.lastPlayingIndex = -1
+                }
+
+                this.$.clipList.selectItem(index)
+            },
+
+            _onSelectClip: function(e, detail) {
+                this._selectClip(e.model.index)
+                e.stopPropagation()
+            },
+
+            // TODO Keep playing on edit if same clip is being edited
+            _onEditClip: function(e, detail) {
+                const index = e.model.index
+                this._selectClip(index)
+
+                const input = this.$.dialogInput
+                input.value = this.$.clipList.selectedItem.transcript
+
+                this.editingIndex = index
+                this.$.dialog.open()
+
+                // Polymer...
+                this.async(() => {
+                    input.focus()
+                }, 10)
+                e.stopPropagation()
+            },
+
+            _setPlayingState: function(index, isPlaying) {
+                this.clipData[index].isPlaying = isPlaying
+                this.notifyPath(sprintf('clipData.%d.isPlaying', index));
+            },
+
+            _onPlayStopClip: function(e, detail) {
+                const index = e.model.index,
+                    isPlaying = !this.clipData[index].isPlaying
+                this._setPlayingState(index, isPlaying)
+
+                if (isPlaying) {
+                    this._selectClip(index)
+                    this.fire('play-clip', this.$.clipList.selectedItem)
+                    this.lastPlayingIndex = index
+                } else {
+                    this.fire('stop-clip')
+                }
+
+                e.stopPropagation()
+            },
+
+            _onDeleteClip: function(e, detail) {
+                this.splice('clipData', e.model.index, 1)
+                e.stopPropagation()
+            },
+
+            _onDialogClose: function(e, detail) {
+                if (detail.confirmed) {
+                    this._getSelectedClip().transcript = this.$.dialogInput.value.trim()
+                    if (~this.editingIndex) {
+                        this.notifyPath(sprintf('clipData.%d.transcript', this.editingIndex));
+                    }
+                }
+                this.editingIndex = -1
+            }
+        })
+    })()
+</script>

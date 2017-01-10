@@ -1,0 +1,135 @@
+<link rel="import" href="/bower_components/polymer/polymer.html">
+<link rel="import" href="/bower_components/iron-ajax/iron-ajax.html">
+<link rel="import" href="/bower_components/iron-list/iron-list.html">
+
+<dom-module id="audio-file-list">
+    <template>
+      <style>
+      #audioList {
+        width: 100vh;
+      }
+      .row {
+        height: 48px;
+        display: flex;
+        justify-content: center;
+        flex-direction: column;
+      }
+      /*TODO Use common styles*/
+      .row.selected {
+        background-color: #ddd;
+      }
+      .row:hover {
+        cursor: pointer;
+        background-color: #eee;
+      }
+      </style>
+
+      <iron-ajax id='ajax' auto url="/clip/audio" handle-as="json" on-response="_onAudioAjaxResponse"></iron-ajax>
+
+        <iron-list id='audioList' items=[[audioFiles]] selected-item="{{selectedFile}}" selection-enabled>
+            <template>
+              <p class='row' class$="[[_computedClass(selected)]]">[[item.label]]</p>
+            </template>
+    </iron-list>
+
+    </template>
+</dom-module>
+
+<script>
+    (function() {
+        const queryKeyCache = {},
+            audioDataCache = {},
+            getAudioData = queryKey => {
+                return audioDataCache[queryKeyCache[queryKey]]
+            }
+
+        Polymer({
+            is: 'audio-file-list',
+
+            properties: {
+                audioFiles: {
+                    type: Array,
+                },
+                selectedFile: {
+                    type: Object,
+                    observer: '_onSelectedFileChange'
+                }
+            },
+
+            _computedClass: function(isSelected) {
+                var classes = 'row'
+                if (isSelected) {
+                    classes += ' selected'
+                }
+                return classes
+            },
+
+            getSelectedFile: function() {
+                return this.lastMetaLoad ? getAudioData(this.lastMetaLoad) : null
+            },
+
+            _onAudioAjaxResponse: function(e, request) {
+                const url = request.xhr.responseURL,
+                    response = request.response,
+                    isListing = /\/clip\/audio$/.test(url)
+                if (isListing) {
+                    const labelRegExp = /^(.+)\.\w+$/
+                    this.audioFiles = response.map(fileName => {
+                        const labelMatch = labelRegExp.exec(fileName),
+                            label = labelMatch ? labelMatch[1] : fileName
+                        return {
+                            name: fileName,
+                            label: label
+                        }
+                    })
+
+                } else {
+                    const data = response,
+                        lastMetaLoad = this.lastMetaLoad,
+                        isLastMetaLoad = url.endsWith(lastMetaLoad)
+                    if (isLastMetaLoad) {
+                        const keyRegExp = /\/([^./]+)\.json$/,
+                            keyMatch = keyRegExp.exec(url)
+                        if (keyMatch) {
+                            const key = keyMatch[1],
+                                fileName = data.audioFile,
+                                activeClipping = {
+                                    key: key,
+                                    fileName: fileName,
+                                    filePath: sprintf('/audio/file/%s', fileName),
+                                    clipping: data.clipping
+                                }
+                            queryKeyCache[lastMetaLoad] = key
+                            audioDataCache[key] = activeClipping
+
+                            this._fireLoaded(activeClipping)
+
+                        } else {
+                            throw new Error('Invalid response')
+                        }
+                    }
+                }
+            },
+
+            _fireLoaded: function(fileMeta) {
+                this.fire('file-loaded', fileMeta)
+            },
+
+            _onSelectedFileChange: function(newValue) {
+                if (newValue) {
+                    const metaFileName = sprintf('%s.json', newValue.label),
+                        metaUrl = sprintf('audio/meta/%s', metaFileName)
+                    this.lastMetaLoad = metaUrl
+
+                    if (queryKeyCache[metaUrl]) {
+                        const cached = getAudioData(metaUrl)
+                        this._fireLoaded(cached)
+                    } else {
+                        this.fire('file-loading', metaFileName)
+                        this.$.ajax.url = metaUrl
+                    }
+                }
+            }
+        })
+    })()
+</script>

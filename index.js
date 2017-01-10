@@ -1,6 +1,8 @@
 'use strict';
 
 const Hapi = require('hapi'),
+    Joi = require('joi'),
+    Fs = require('fs'),
     sprintf = require('sprintf-js').sprintf
 
 // Server
@@ -74,6 +76,36 @@ Promise.resolve(new Hapi.Server())
                 })
             }
         }, {
+            method: 'PUT',
+            path: '/clip/meta',
+            handler: function(request, reply) {
+                const filePath = sprintf('./clipMeta/%s.json', request.payload.key),
+                    contents = JSON.stringify(request.payload.content, null, 2)
+                new Promise((f, r) => {
+                        Fs.writeFile(filePath, contents, err => {
+                            if (err)
+                                r(err)
+                            else
+                                f()
+                        })
+                    })
+                    .then(() => {
+                        reply().code(204)
+                    })
+                    .catch(e => {
+                        console.error(e)
+                        reply().code(500)
+                    })
+            },
+            config: {
+                validate: {
+                    payload: {
+                        key: Joi.string().required(),
+                        content: Joi.object().required()
+                    }
+                }
+            }
+        }, {
             method: 'GET',
             path: '/audio/file/{param*}',
             handler: {
@@ -87,6 +119,14 @@ Promise.resolve(new Hapi.Server())
             handler: {
                 directory: {
                     path: 'clipMeta/'
+                }
+            }
+        }, {
+            method: 'GET',
+            path: '/common/{param*}',
+            handler: {
+                directory: {
+                    path: 'common/'
                 }
             }
         }, {
