@@ -240,7 +240,9 @@
             },
 
             _onPlayClipFile: function(e, detail) {
-                this.fire('play-clip-file', this.clipData[e.model.index])
+                const index = e.model.index
+                this._selectClip(index)
+                this.fire('play-clip-file', this.clipData[index])
             },
 
             _onDeleteClip: function(e, detail) {
@@ -271,8 +273,8 @@
                             this.notifyPath(sprintf('clipData.%d.length', this.editingIndex))
                             isChange = true
                         }
-                        if(isChange) {
-                          this.save()
+                        if (isChange) {
+                            this.save()
                         }
                     }
                 }
