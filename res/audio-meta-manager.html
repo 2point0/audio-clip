@@ -15,8 +15,11 @@
     <template>
       <style is="custom-style" include="iron-flex iron-flex-alignment"></style>
       <style>
+      #dialog > div > paper-input:not(:first-child) {
+        margin-left: 16px;
+      }
       #clipList{
-        height: 100vh;
+        width: 100%;
       }
       .row>p:hover{
         background: #eee;
@@ -29,7 +32,11 @@
       <paper-toast id="toast" text=""></paper-toast>
 
       <paper-dialog id="dialog" on-iron-overlay-closed='_onDialogClose' with-backdrop>
-        <paper-input id='dialogInput' tabindex='1'></paper-input>
+        <div class='horizontal layout'>
+          <paper-input id='startInput' tabindex='1'></paper-input>
+          <paper-input id='lengthInput' tabindex='1'></paper-input>
+        </div>
+        <paper-input id='transcriptInput' tabindex='1'></paper-input>
         <div class="buttons">
           <paper-button dialog-dismiss>Close</paper-button>
           <paper-button dialog-confirm autofocus>OK</paper-button>
@@ -42,7 +49,8 @@
           <div class='horizontal layout row'>
             <paper-button on-tap='_onSelectClip'><iron-icon icon='[[_computeClipSelect(selected)]]'></iron-icon></paper-button>
             <paper-button on-tap='_onPlayStopClip'><iron-icon icon='[[_computeClipPlay(item.isPlaying)]]'></iron-icon></paper-button>
-            <p class="flex" on-tap='_onEditClip'>[[_computeClipLabel(item.transcript)]]</p>
+            <paper-button on-tap='_onPlayClipFile'><iron-icon icon='description'></iron-icon></paper-button>
+            <p class="flex" on-tap='_onEditClip'>[[item.start]] [[item.length]] [[_computeClipLabel(item.transcript)]]</p>
             <paper-button on-tap='_onDeleteClip'><iron-icon icon='delete'></iron-icon></paper-button>
           </div>
         </template>
@@ -82,8 +90,7 @@
             },
 
             _computeClipLabel: function(transcript) {
-                const L = 30
-                return transcript.length < L ? transcript : sprintf('%s ...', transcript.substr(0, L))
+                return transcript
             },
 
             clear: function() {
@@ -190,20 +197,23 @@
                 e.stopPropagation()
             },
 
-            // TODO Keep playing on edit if same clip is being edited
             _onEditClip: function(e, detail) {
                 const index = e.model.index
                 this._selectClip(index)
 
-                const input = this.$.dialogInput
-                input.value = this.$.clipList.selectedItem.transcript
+                const transcriptInput = this.$.transcriptInput,
+                    selected = this.$.clipList.selectedItem
+                transcriptInput.value = selected.transcript
+
+                this.$.startInput.value = selected.start ? selected.start : '0.0'
+                this.$.lengthInput.value = selected.length ? selected.length : '0.0'
 
                 this.editingIndex = index
                 this.$.dialog.open()
 
                 // Polymer...
                 this.async(() => {
-                    input.focus()
+                    transcriptInput.focus()
                 }, 10)
                 e.stopPropagation()
             },
@@ -229,6 +239,10 @@
                 e.stopPropagation()
             },
 
+            _onPlayClipFile: function(e, detail) {
+                this.fire('play-clip-file', this.clipData[e.model.index])
+            },
+
             _onDeleteClip: function(e, detail) {
                 this.splice('clipData', e.model.index, 1)
                 e.stopPropagation()
@@ -236,9 +250,30 @@
 
             _onDialogClose: function(e, detail) {
                 if (detail.confirmed) {
-                    this._getSelectedClip().transcript = this.$.dialogInput.value.trim()
+                    const selected = this._getSelectedClip()
+                    selected.transcript = this.$.transcriptInput.value.trim()
+                    const startText = this.$.startInput.value.trim(),
+                        lengthText = this.$.lengthInput.value.trim()
                     if (~this.editingIndex) {
-                        this.notifyPath(sprintf('clipData.%d.transcript', this.editingIndex));
+                        this.notifyPath(sprintf('clipData.%d.transcript', this.editingIndex))
+
+                        const timeCodeRegExp = /^\d+(:\d+){0,2}(\.\d+)?$/,
+                            start0 = selected.start,
+                            length0 = selected.length
+                        let isChange = false
+                        if (start0 != startText && timeCodeRegExp.test(startText)) {
+                            selected.start = startText
+                            this.notifyPath(sprintf('clipData.%d.start', this.editingIndex))
+                            isChange = true
+                        }
+                        if (length0 != lengthText && timeCodeRegExp.test(lengthText)) {
+                            selected.length = lengthText
+                            this.notifyPath(sprintf('clipData.%d.length', this.editingIndex))
+                            isChange = true
+                        }
+                        if(isChange) {
+                          this.save()
+                        }
                     }
                 }
                 this.editingIndex = -1

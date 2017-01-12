@@ -7,6 +7,7 @@ const Joi = require('joi'),
     ClipName = require('../../common/ClipName')
 
 const audioFileDir = 'audioFile',
+    clipFileDir = 'audioClip',
     readMetaPromise = key => {
         return new Promise((f, r) => {
             const metaFilePath = sprintf('./clipMeta/%s.json', key)
@@ -22,11 +23,93 @@ const audioFileDir = 'audioFile',
                 }
             })
         })
-    }
+    },
+    clipAudioPromise = (clipName, sourceFileName, clipMeta) => {
+        return new Promise((f, r) => {
+            const outputFile = clipName.getClipName(clipMeta),
+                clipCmdTemplate = 'ffmpeg -y -ss %s -i %s/%s -t %s ./%s/%s',
+                clipCmd = sprintf(
+                    clipCmdTemplate,
+                    clipMeta.start,
+                    audioFileDir,
+                    sourceFileName,
+                    clipMeta.length,
+                    clipFileDir,
+                    outputFile
+                )
+            clipMeta.fileName = outputFile
+            exec(
+                clipCmd,
+                (error, stdout, stderr) => f(clipMeta)
+            )
+        })
+    },
+    timeCodeFormatValidation = Joi.string().regex(/^\d+(:\d+){0,2}(\.\d+)?$/)
 
 module.exports = options => {
     return [{
         method: 'PUT',
+        path: '/audio-clip',
+        handler: function(request, reply) {
+            const fileName = request.payload.fileName,
+                timeCode = request.payload.timeCode,
+                clipName = new ClipName(fileName)
+
+            Promise.resolve(clipName.getClipName(timeCode))
+                .then(clipFileName => {
+                    return new Promise((f, r) => {
+                        Fs.stat(sprintf('%s/%s', clipFileDir, clipFileName), (err, stats) => {
+                            if (err) {
+                                if (~err.message.indexOf('no such file or directory')) {
+                                    f(Promise.resolve(sprintf('./%s/%s', audioFileDir, fileName))
+                                        .then(filePath => {
+                                            return new Promise((f, r) => {
+                                                Fs.stat(filePath, (err, stats) => {
+                                                    if (err)
+                                                        r(err)
+                                                    else if (stats.isFile()) {
+                                                        f(filePath)
+                                                    } else
+                                                        r('Audio file must be a file')
+                                                })
+                                            })
+                                        })
+                                        .then(filePath => {
+                                            return clipAudioPromise(clipName, fileName, timeCode)
+                                        })
+                                        .then(clipMeta => {
+                                            return clipMeta.fileName
+                                        })
+                                    )
+                                } else
+                                    r(err)
+                            } else if (stats.isFile())
+                                f(clipFileName)
+                        })
+                    })
+                })
+                .then(clipFileName => {
+                    // Path must be server path, not actual path
+                    reply(sprintf('/audio/clip/%s', clipFileName))
+                })
+                .catch(err => {
+                    console.error(err)
+                    reply().code(500)
+                })
+        },
+        config: {
+            validate: {
+                payload: {
+                    fileName: Joi.string().required(),
+                    timeCode: Joi.object().keys({
+                        start: timeCodeFormatValidation.required(),
+                        length: timeCodeFormatValidation.required()
+                    }).required()
+                }
+            }
+        }
+    }, {
+        method: 'POST',
         path: '/audio-clip',
         handler: function(request, reply) {
             const key = request.query.key,
@@ -37,16 +120,18 @@ module.exports = options => {
                     return meta ? meta : readMetaPromise(key)
                 })
                 .then(meta => {
-                    if (meta.clipping && meta.audioFile) {
+                    if (meta.audioFile) {
+                        const audioFilePath = sprintf('./%s/%s', audioFileDir, meta.audioFile)
                         return new Promise((f, r) => {
-                            const audioFilePath = sprintf('./%s/%s', audioFileDir, meta.audioFile)
                             Fs.stat(audioFilePath, (err, stats) => {
                                 if (err)
                                     r(err)
-                                else if (stats.isFile())
-                                    f(meta)
-                                else
-                                    r('Invalid audio file')
+                                else if (stats.isFile()) {
+                                    if (meta.clipping) {
+                                        f(meta)
+                                    }
+                                } else
+                                    r('Audio file must be a file')
                             })
                         })
                     }
@@ -57,15 +142,7 @@ module.exports = options => {
                     const sourceFileName = meta.audioFile,
                         clipName = new ClipName(sourceFileName)
                     return Promise.all(meta.clipping.map(c => {
-                        return new Promise((f, r) => {
-                            const outputFile = clipName.getClipName(c),
-                                clipCmdTemplate = 'ffmpeg -y -ss %s -i %s/%s -t %s ./audioClip/%s',
-                                clipCmd = sprintf(clipCmdTemplate, c.start, audioFileDir, sourceFileName, c.length, outputFile)
-                            exec(
-                                clipCmd,
-                                (error, stdout, stderr) => f(outputFile)
-                            )
-                        })
+                        return clipAudioPromise(clipName, sourceFileName, c)
                     }))
                 })
                 .then(results => {

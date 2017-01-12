@@ -19,9 +19,9 @@
         height: 100vh;
         flex-direction: column;
       }
-      #metaManager {
+      #audioFileList {
         /*TODO This is not working*/
-        flex-grow: 3;
+        width: 200px;
       }
       iron-icon.disabled {
          /*TODO Use styles*/
@@ -29,18 +29,27 @@
       }
       </style>
 
+      <iron-ajax id='clipAjax' ></iron-ajax>
+
       <audio id="audioPlayer"></audio>
+      <audio id="clipPlayer"></audio>
+
+      <min-max-range id='minMaxRange' class='flex' on-range-change='_onRangeChange'></min-max-range>
 
       <!-- TODO Align proper -->
       <div class='horizontal layout'>
         <paper-button on-tap='_onSaveMeta'><iron-icon class='file-action disabled' icon='save'></iron-icon></paper-button>
         <paper-button on-tap='_onAddClipping'><iron-icon class='file-action disabled' icon='add'></iron-icon></paper-button>
-        <min-max-range id='minMaxRange' class='flex' on-range-change='_onRangeChange'></min-max-range>
       </div>
 
       <div class='horizontal layout'>
         <audio-file-list id='audioFileList' on-file-loading='_onFileLoading' on-file-loaded='_onFileLoaded'></audio-file-list>
-        <audio-meta-manager id='metaManager' on-clip-select='_onClipSelect' on-play-clip='_onPlayClip' on-stop-clip='_stopClip'></audio-meta-manager>
+        <audio-meta-manager id='metaManager' class='flex'
+        on-clip-select='_onClipSelect'
+        on-play-clip='_onPlayClip'
+        on-stop-clip='_stopClip'
+        on-play-clip-file='_onPlayClipFile'>
+      </audio-meta-manager>
     </div>
 
     </template>
@@ -257,6 +266,33 @@
 
             _stopClip: function(e, detail) {
                 this.$.audioPlayer.pause()
+            },
+
+            _onPlayClipFile: function(e, detail) {
+                const fileName = this._getSelectedFile().fileName,
+                    timeCode = {
+                        start: detail.start,
+                        length: detail.length
+                    },
+                    ajax = this.$.clipAjax
+                ajax.url = '/audio-clip'
+                ajax.method = 'PUT'
+                ajax.contentType = 'application/json'
+                ajax.body = {
+                    fileName: fileName,
+                    timeCode: timeCode
+                }
+                ajax.handleAs = 'text'
+                const request = ajax.generateRequest()
+                request.completes
+                    .then(() => {
+                        const player = this.$.clipPlayer
+                        player.src = request.response
+                        player.play()
+                    })
+                    .catch(e => {
+                        console.error('Clip fail', fileName, e)
+                    })
             },
 
             _timeoutPlay: function(player) {

@@ -123,6 +123,14 @@ Promise.resolve(new Hapi.Server())
             }
         }, {
             method: 'GET',
+            path: '/audio/clip/{param*}',
+            handler: {
+                directory: {
+                    path: 'audioClip/'
+                }
+            }
+        }, {
+            method: 'GET',
             path: '/common/{param*}',
             handler: {
                 directory: {
