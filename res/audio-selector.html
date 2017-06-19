@@ -34,6 +34,8 @@
       <audio id="audioPlayer"></audio>
       <audio id="clipPlayer"></audio>
 
+      <p>[[currentTimeText]]</p>
+
       <min-max-range id='minMaxRange' class='flex' on-range-change='_onRangeChange'></min-max-range>
 
       <!-- TODO Align proper -->
@@ -302,6 +304,7 @@
             },
 
             _onPlayUpdate: function(player) {
+                this.currentTimeText = timeText.toTimeCode(player.currentTime)
                 this._loopAudio(player)
             },
 
